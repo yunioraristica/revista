@@ -1,32 +1,113 @@
 """
-Bot OJS Uploader con Telegram - Render Ready
+Aplicación Flask principal para Bot OJS Uploader
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 import os
 import json
+import logging
 from datetime import datetime
+import uuid
+import hashlib
 import requests
 
-app = Flask(__name__)
+# Configuración
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Token de tu bot (REEMPLAZA ESTO CON TU TOKEN REAL)
-TELEGRAM_TOKEN = "TU_TOKEN_DE_TELEGRAM_AQUI"
+app = Flask(__name__)
+app.secret_key = os.environ.get('SESSION_SECRET', hashlib.sha256(str(uuid.uuid4()).encode()).hexdigest())
+
+# Token de Telegram (se puede configurar después)
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN', '')
+
+class SimpleConfig:
+    def __init__(self):
+        self.config_dir = "config"
+        os.makedirs(self.config_dir, exist_ok=True)
+        self.init_configs()
+    
+    def init_configs(self):
+        # Admin config
+        if not os.path.exists(f"{self.config_dir}/admin.json"):
+            default = {
+                "admin_username": "admin",
+                "admin_password": "admin123",
+                "bot_token": str(uuid.uuid4()),
+                "created_at": datetime.now().isoformat()
+            }
+            with open(f"{self.config_dir}/admin.json", 'w') as f:
+                json.dump(default, f, indent=2)
+        
+        # Telegram config
+        if not os.path.exists(f"{self.config_dir}/telegram.json"):
+            default = {
+                "telegram_bot_token": "",
+                "telegram_admin_user_id": "",
+                "webhook_url": "",
+                "configured_at": "",
+                "is_active": False
+            }
+            with open(f"{self.config_dir}/telegram.json", 'w') as f:
+                json.dump(default, f, indent=2)
+    
+    def get_config(self, name):
+        try:
+            with open(f"{self.config_dir}/{name}.json", 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+
+config = SimpleConfig()
+
+# ==================== RUTAS PRINCIPALES ====================
 
 @app.route('/')
-def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head><title>Bot OJS Uploader</title></head>
-    <body style="font-family:Arial;padding:50px;text-align:center">
+def index():
+    """Página principal"""
+    try:
+        return render_template('index.html')
+    except:
+        return """
         <h1>🤖 Bot OJS Uploader</h1>
-        <p>✅ Desplegado en Render</p>
-        <p>URL: https://revista-amyn.onrender.com</p>
-        <p><a href="/telegram/setup">🔧 Configurar Telegram</a></p>
-    </body>
-    </html>
+        <p>✅ Sistema funcionando</p>
+        <a href="/admin/login">Panel Admin</a>
+        """
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    """Login de administrador"""
+    if request.method == 'POST':
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        
+        admin_config = config.get_config('admin')
+        
+        if username == admin_config.get('admin_username') and password == admin_config.get('admin_password'):
+            session['admin_logged_in'] = True
+            return redirect('/admin/dashboard')
+        
+        return "Credenciales incorrectas"
+    
+    return render_template('login.html')
+
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    """Panel de administración"""
+    if 'admin_logged_in' not in session:
+        return redirect('/admin/login')
+    
+    admin_config = config.get_config('admin')
+    telegram_config = config.get_config('telegram')
+    
+    return f"""
+    <h1>⚙️ Panel de Administración</h1>
+    <p>Token del bot: {admin_config.get('bot_token', 'No configurado')}</p>
+    <p>Telegram configurado: {'✅' if telegram_config.get('is_active') else '❌'}</p>
+    <a href="/telegram/setup">Configurar Telegram</a>
     """
+
+# ==================== TELEGRAM ====================
 
 @app.route('/telegram', methods=['POST'])
 def telegram_webhook():
@@ -39,57 +120,65 @@ def telegram_webhook():
             chat_id = message['chat']['id']
             text = message.get('text', '').strip()
             
-            # Respuesta a /start
+            telegram_config = config.get_config('telegram')
+            token = telegram_config.get('telegram_bot_token') or TELEGRAM_TOKEN
+            
+            if not token:
+                return jsonify({'error': 'Token no configurado'}), 400
+            
+            # Comando /start
             if text == '/start':
-                response = """
+                response = f"""
 🤖 *Bot OJS Uploader - Activo*
 
 ✅ Conectado correctamente
-📍 Servidor: Render
-📅 Hora: {time}
+📍 URL: https://revista-amyn.onrender.com
+🕐 Hora: {datetime.now().strftime('%H:%M:%S')}
 
-Envía /help para ver comandos
-                """.format(time=datetime.now().strftime('%H:%M:%S'))
+Envía /help para ver comandos disponibles
+                """
                 
-                send_telegram_message(chat_id, response)
+                send_telegram_message(token, chat_id, response)
                 return jsonify({'status': 'ok'})
             
-            # Respuesta a /help
+            # Comando /help
             elif text == '/help':
-                help_text = """
+                response = """
 🆘 *Comandos disponibles:*
-/start - Iniciar bot
-/help - Mostrar ayuda
-/status - Ver estado
+
+/start - Iniciar el bot
+/help - Mostrar esta ayuda
+/status - Ver estado del sistema
 
 📞 *Soporte:* Contacta al administrador
                 """
-                send_telegram_message(chat_id, help_text)
+                send_telegram_message(token, chat_id, response)
                 return jsonify({'status': 'ok'})
             
-            # Respuesta a /status
+            # Comando /status
             elif text == '/status':
-                status_text = f"""
+                response = f"""
 📊 *Estado del Sistema*
 
 ✅ Servicio: Activo
 📍 URL: https://revista-amyn.onrender.com
 🕐 Hora: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-🤖 Bot: Conectado
+🤖 Bot: Conectado a Telegram
+⚡ Modo: Render + Webhook
                 """
-                send_telegram_message(chat_id, status_text)
+                send_telegram_message(token, chat_id, response)
                 return jsonify({'status': 'ok'})
         
         return jsonify({'status': 'ignored'})
         
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error en webhook: {e}")
         return jsonify({'error': str(e)}), 500
 
-def send_telegram_message(chat_id, text):
+def send_telegram_message(token, chat_id, text):
     """Enviar mensaje a Telegram"""
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {
             'chat_id': chat_id,
             'text': text,
@@ -98,7 +187,7 @@ def send_telegram_message(chat_id, text):
         response = requests.post(url, json=payload, timeout=10)
         return response.json()
     except Exception as e:
-        print(f"Error enviando mensaje: {e}")
+        logger.error(f"Error enviando mensaje: {e}")
         return None
 
 @app.route('/telegram/setup', methods=['GET', 'POST'])
@@ -106,28 +195,49 @@ def setup_telegram():
     """Configurar Telegram"""
     if request.method == 'POST':
         token = request.form.get('token', '').strip()
-        if token:
-            # Actualizar token
-            global TELEGRAM_TOKEN
-            TELEGRAM_TOKEN = token
+        user_id = request.form.get('user_id', '').strip()
+        
+        if token and user_id:
+            # Guardar configuración
+            telegram_config = {
+                'telegram_bot_token': token,
+                'telegram_admin_user_id': user_id,
+                'configured_at': datetime.now().isoformat(),
+                'is_active': True
+            }
+            
+            with open('config/telegram.json', 'w') as f:
+                json.dump(telegram_config, f, indent=2)
             
             # Configurar webhook
             webhook_url = "https://revista-amyn.onrender.com/telegram"
-            setup_url = f"https://api.telegram.org/bot{token}/setWebhook"
-            
             try:
-                response = requests.post(setup_url, json={
-                    'url': webhook_url,
-                    'drop_pending_updates': True
-                })
+                # Eliminar webhook anterior
+                requests.post(f"https://api.telegram.org/bot{token}/deleteWebhook")
+                
+                # Configurar nuevo
+                response = requests.post(
+                    f"https://api.telegram.org/bot{token}/setWebhook",
+                    json={'url': webhook_url, 'drop_pending_updates': True}
+                )
                 
                 if response.json().get('ok'):
-                    return f"""
-                    <h2>✅ Configurado</h2>
+                    telegram_config['webhook_url'] = webhook_url
+                    with open('config/telegram.json', 'w') as f:
+                        json.dump(telegram_config, f, indent=2)
+                    
+                    # Enviar mensaje de confirmación
+                    send_telegram_message(token, user_id, 
+                        f"✅ *Bot configurado exitosamente*\n\nWebhook: {webhook_url}\n\nEnvía /start para comenzar")
+                    
+                    return """
+                    <h2>✅ Telegram configurado</h2>
                     <p>Ahora envía /start a tu bot en Telegram</p>
+                    <a href="/">Volver al inicio</a>
                     """
                 else:
                     return f"Error: {response.json().get('description')}"
+                    
             except Exception as e:
                 return f"Error: {e}"
     
@@ -136,25 +246,47 @@ def setup_telegram():
     <html>
     <head><title>Configurar Telegram</title></head>
     <body style="padding:50px">
-        <h2>Configurar Telegram</h2>
+        <h2>🔧 Configurar Telegram</h2>
         <form method="POST">
-            <p>Token de tu bot:</p>
-            <input type="text" name="token" style="width:300px;padding:10px">
+            <p>Token del bot (de @BotFather):</p>
+            <input type="text" name="token" style="width:300px;padding:10px" 
+                   placeholder="6123456789:ABCdefGHIjkl..." required>
+            
+            <p>Tu ID de usuario (de @userinfobot):</p>
+            <input type="text" name="user_id" style="width:300px;padding:10px" 
+                   placeholder="123456789" required>
+            
             <br><br>
-            <button type="submit">Configurar</button>
+            <button type="submit" style="padding:10px 20px">Configurar</button>
         </form>
     </body>
     </html>
     """
 
+# ==================== API ====================
+
 @app.route('/api/status')
 def api_status():
+    """Estado del sistema"""
+    telegram_config = config.get_config('telegram')
+    
     return jsonify({
         'status': 'online',
-        'telegram': 'configured' if TELEGRAM_TOKEN != "TU_TOKEN_DE_TELEGRAM_AQUI" else 'not_configured',
-        'timestamp': datetime.now().isoformat()
+        'service': 'OJS Uploader Bot',
+        'url': 'https://revista-amyn.onrender.com',
+        'timestamp': datetime.now().isoformat(),
+        'telegram_configured': telegram_config.get('is_active', False),
+        'telegram_webhook': telegram_config.get('webhook_url', '')
     })
+
+@app.route('/api/test')
+def api_test():
+    """Endpoint de prueba"""
+    return jsonify({'success': True, 'message': 'API funcionando'})
+
+# ==================== INICIO ====================
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    logger.info(f"🚀 Iniciando en puerto {port}")
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
