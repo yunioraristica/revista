@@ -15,6 +15,7 @@ class ConfigManager:
         # Archivos de configuración
         self.admin_config_file = os.path.join(self.config_dir, "admin.json")
         self.journals_config_file = os.path.join(self.config_dir, "journals.json")
+        self.telegram_config_file = os.path.join(self.config_dir, "telegram.json")
         
         # Inicializar configuraciones por defecto
         self.init_default_configs()
