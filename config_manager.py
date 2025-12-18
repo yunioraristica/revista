@@ -42,13 +42,13 @@ class ConfigManager:
                 # 🔑 TOKEN DE TU BOT DE TELEGRAM
                 # Obténlo de @BotFather -> /newbot
                 # Ejemplo: "6123456789:AAE7t8K9v5gcR2p3qrj1TwZVuXy5v6G7ij1"
-                "telegram_bot_token": "PON_AQUI_TU_TOKEN",
+                "telegram_bot_token": "8546436958:AAGfWjBOPBHuZiPRnxF6i0CJar61ftpnaZ0",
                 
                 # 👤 TU @USUARIO DE TELEGRAM (opcional) y TU ID
                 # Tu @usuario: Ejemplo "@yunior_avila13"
                 # Tu ID numérico: Obténlo de @userinfobot
-                "telegram_admin_username": "@tu_usuario_de_telegram",
-                "telegram_admin_user_id": "tu_id_numerico",
+                "telegram_admin_username": "@Wilfre013",
+                "telegram_admin_user_id": "8433015804",
                 
                 # Configuraciones de notificaciones
                 "telegram_chat_id": "",
